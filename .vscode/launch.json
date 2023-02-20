@@ -9,14 +9,14 @@
             "type": "go",
             "request": "launch",
             "mode": "auto",
-            "program": "/Users/paulliu/Documents/vscode/grpc_up_and_running/go/ecommerce/client/main.go"
+            "program": "/Users/paulliu/Documents/vscode/grpc_up_and_running/ecommerce/client/main.go"
         },
         {
             "name": "Server",
             "type": "go",
             "request": "launch",
             "mode": "auto",
-            "program": "/Users/paulliu/Documents/vscode/grpc_up_and_running/go/ecommerce/server"
+            "program": "/Users/paulliu/Documents/vscode/grpc_up_and_running/ecommerce/server"
         }
     ],
     "compounds": [
