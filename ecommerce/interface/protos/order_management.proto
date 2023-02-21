@@ -4,8 +4,17 @@ import "google/protobuf/wrappers.proto";
 
 option go_package="interface/pbs";
 
+//cd ~/Documents/vscode/grpc_up_and_running/ecommerce
+//protoc --go_out=. --go-grpc_out=. interface/protos/*
 service OrderManagement {
+    // unary rpc
     rpc getOrder(google.protobuf.StringValue) returns (Order);
+    // server side streaming rpc
+    rpc searchOrders(google.protobuf.StringValue) returns (stream Order);
+    // client side streaming rpc
+    rpc updateOrders(stream Order) returns (google.protobuf.StringValue);
+    // bi-directional streaming rpc
+    rpc processOrders(stream google.protobuf.StringValue) returns (stream CombinedShipment);
 }
 
 message Order {
@@ -14,4 +23,10 @@ message Order {
     string description = 3;
     float price = 4;
     string destination = 5;
+}
+
+message CombinedShipment {
+    string id = 1;
+    string status = 2;
+    repeated Order ordersList = 3;
 }

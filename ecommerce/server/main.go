@@ -26,21 +26,6 @@ func main() {
     wg.Wait()
 }
 
-func orderManagementServerStart() {
-    defer wg.Done()
-	grpcLis2, err := net.Listen("tcp", orderPort)
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-    grpcServer2 := grpc.NewServer()
-    pb.RegisterOrderManagementServer(grpcServer2, &orderManagementServer{})
-	log.Printf("Starting gRPC OrderManagement server on port %s", orderPort)
-
-    if err := grpcServer2.Serve(grpcLis2); err != nil {
-        log.Fatalf("failed to serve: %v", err)
-    }
-}
-
 func productInfoServerStart() {
     defer wg.Done()
 	grpcLis1, err := net.Listen("tcp", productPort)
@@ -52,6 +37,23 @@ func productInfoServerStart() {
 	log.Printf("Starting gRPC ProductInfo server on port %s", productPort)
 
     if err := grpcServer1.Serve(grpcLis1); err != nil {
+        log.Fatalf("failed to serve: %v", err)
+    }
+}
+
+func orderManagementServerStart() {
+    defer wg.Done()
+	grpcLis2, err := net.Listen("tcp", orderPort)
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
+	}
+    grpcServer2 := grpc.NewServer()
+	s := &orderManagementServer{}
+    s.PrepareOrders()
+    pb.RegisterOrderManagementServer(grpcServer2, s)
+	log.Printf("Starting gRPC OrderManagement server on port %s", orderPort)
+
+    if err := grpcServer2.Serve(grpcLis2); err != nil {
         log.Fatalf("failed to serve: %v", err)
     }
 }
