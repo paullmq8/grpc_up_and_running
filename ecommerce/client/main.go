@@ -195,7 +195,7 @@ func callProcessOrders() {
 	}
 
 	channel := make(chan struct{})
-	go asncClientBidirectionalRPC(streamProcOrder, channel)
+	go asyncClientBidirectionalRPC(streamProcOrder, channel)
 	time.Sleep(time.Millisecond * 1000)
 
 	if err := streamProcOrder.Send(&wrappers.StringValue{Value: "101"}); err != nil {
@@ -204,10 +204,11 @@ func callProcessOrders() {
 	if err := streamProcOrder.CloseSend(); err != nil {
 		log.Fatal(err)
 	}
-	<-channel
+	//<-channel
+	channel <- struct{}{}
 }
 
-func asncClientBidirectionalRPC(streamProcOrder pb.OrderManagement_ProcessOrdersClient, c chan struct{}) {
+func asyncClientBidirectionalRPC(streamProcOrder pb.OrderManagement_ProcessOrdersClient, c <-chan struct{}) {
 	for {
 		combinedShipment, errProcOrder := streamProcOrder.Recv()
 		if errProcOrder == io.EOF {
@@ -217,5 +218,6 @@ func asncClientBidirectionalRPC(streamProcOrder pb.OrderManagement_ProcessOrders
 			log.Println("Combined shipment : ", combinedShipment.OrdersList)
 		}
 	}
-	close(c)
+	//close(c)
+	<-c
 }
