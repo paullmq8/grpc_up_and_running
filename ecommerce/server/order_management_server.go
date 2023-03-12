@@ -2,14 +2,18 @@ package main
 
 import (
 	"context"
+	pb "ecommerce/interface/pbs"
 	"fmt"
+	"github.com/golang/protobuf/ptypes/empty"
+	"github.com/golang/protobuf/ptypes/wrappers"
+	epb "google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"io"
 	"log"
 	"strings"
-
-	pb "ecommerce/interface/pbs"
-
-	"github.com/golang/protobuf/ptypes/wrappers"
 )
 
 const (
@@ -34,19 +38,62 @@ func (s *orderManagementServer) PrepareOrders() {
 	log.Println("orderMap is prepared!")
 }
 
+func (s *orderManagementServer) AddOrder(ctx context.Context, in *pb.Order) (*wrappers.StringValue, error) {
+	// reading metadata sent from unary client
+	printUnaryMetadata(ctx)
+
+	if in.Id == "-1" {
+		log.Printf("Order ID is invalid! -> Received Order ID %s", in.Id)
+		errorStatus := status.New(codes.InvalidArgument, "Invalid information received")
+		ds, err := errorStatus.WithDetails(&epb.BadRequest_FieldViolation{
+			Field: "ID",
+			Description: fmt.Sprintf(
+				"Order ID received is not valid %s : %s",
+				in.Id, in.Description,
+			),
+		})
+		if err != nil {
+			return nil, errorStatus.Err()
+		}
+		return nil, ds.Err()
+	}
+	s.orderMap[in.Id] = in
+	log.Println("Order : ", in.Id, " -> Added")
+	log.Println("Setting server header and trailer here")
+
+	// set metadata in header and trailer
+	setMetadataForRPCCall(ctx)
+
+	//time.Sleep(5 * time.Second)
+	return &wrappers.StringValue{Value: "Order Added: " + in.Id}, nil
+}
+
 // GetOrder returns the order for the given order id in unary RPC mode
 func (s *orderManagementServer) GetOrder(ctx context.Context, orderId *wrappers.StringValue) (*pb.Order, error) {
+	// reading metadata sent from unary client
+	printUnaryMetadata(ctx)
+
 	ord, ok := s.orderMap[orderId.Value]
 	if !ok {
 		log.Println("GetOrder is done but no order found.")
 	} else {
 		log.Printf("GetOrder is done. OrderId: %v", orderId.Value)
 	}
+
+	// set metadata in header and trailer
+	setMetadataForRPCCall(ctx)
+
 	return ord, nil
 }
 
 // SearchOrders returns the orders for the given search query in server streaming RPC mode
 func (s *orderManagementServer) SearchOrders(searchQuery *wrappers.StringValue, stream pb.OrderManagement_SearchOrdersServer) error {
+	// print metadata
+	printStreamMetadata(stream)
+
+	// set header and trailer metadata
+	setMetadataForStreamingCall(stream)
+
 	for key, order := range s.orderMap {
 		log.Print(key, order)
 		for _, itemStr := range order.Items {
@@ -67,6 +114,12 @@ func (s *orderManagementServer) SearchOrders(searchQuery *wrappers.StringValue, 
 
 // UpdateOrders updates the orders in client streaming RPC mode
 func (s *orderManagementServer) UpdateOrders(stream pb.OrderManagement_UpdateOrdersServer) error {
+	// print metadata
+	printStreamMetadata(stream)
+
+	// set header and trailer metadata
+	setMetadataForStreamingCall(stream)
+
 	ordersStr := "Updated Order IDs :"
 	for {
 		order, err := stream.Recv()
@@ -84,6 +137,12 @@ func (s *orderManagementServer) UpdateOrders(stream pb.OrderManagement_UpdateOrd
 }
 
 func (s *orderManagementServer) ProcessOrders(stream pb.OrderManagement_ProcessOrdersServer) error {
+	// print metadata
+	printStreamMetadata(stream)
+
+	// set header and trailer metadata
+	setMetadataForStreamingCall(stream)
+
 	batchMarker := 1
 	combinedShipmentMap := make(map[string]*pb.CombinedShipment)
 	for {
@@ -142,4 +201,59 @@ func (s *orderManagementServer) ProcessOrders(stream pb.OrderManagement_ProcessO
 			batchMarker++
 		}
 	}
+}
+
+type helloServer struct {
+	pb.UnimplementedGreetingServer
+}
+
+func (h *helloServer) Hello(ctx context.Context, ept *empty.Empty) (*empty.Empty, error) {
+
+	// reading metadata sent from unary client
+	printUnaryMetadata(ctx)
+
+	log.Println("Hello from Hello Service!")
+	return ept, nil
+}
+
+func printUnaryMetadata(ctx context.Context) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if ok {
+		log.Println("Printing metadata sent from client in unary RPC call")
+		for k, v := range md {
+			log.Println(k, v)
+		}
+	} else {
+		log.Println("No metadata sent from client in unary RPC call")
+	}
+}
+
+func printStreamMetadata(stream grpc.ServerStream) {
+	md, ok := metadata.FromIncomingContext(stream.Context())
+	if ok {
+		log.Println("Printing metadata sent from client in Streaming RPC call")
+		for k, v := range md {
+			log.Println(k, v)
+		}
+	} else {
+		log.Println("No metadata sent from client in Streaming RPC call")
+	}
+}
+
+func setMetadataForRPCCall(ctx context.Context) {
+	// set metadata in header
+	header := metadata.Pairs("rpc-server-header-key", "val")
+	_ = grpc.SetHeader(ctx, header)
+	// set metadata in trailer
+	trailer := metadata.Pairs("rpc-server-trailer-key", "val")
+	_ = grpc.SetTrailer(ctx, trailer)
+}
+
+func setMetadataForStreamingCall(stream grpc.ServerStream) {
+	// create and send header
+	header := metadata.Pairs("streaming-server-header-key", "val")
+	_ = stream.SetHeader(header)
+	// create and set trailer
+	trailer := metadata.Pairs("streaming-server-trailer-key", "val")
+	stream.SetTrailer(trailer)
 }

@@ -2,6 +2,11 @@ package main
 
 import (
 	"context"
+	"github.com/golang/protobuf/ptypes/empty"
+	epb "google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"io"
 	"log"
 	"math/rand"
@@ -15,26 +20,75 @@ import (
 	"google.golang.org/grpc"
 )
 
+func init() {
+	log.SetFlags(log.Lshortfile)
+	//resolver.Register(&exampleResolverBuilder{})
+}
+
 const (
 	productAddress = "localhost:50051"
 	orderAddress   = "localhost:50052"
+	//exampleScheme      = "example"
+	//exampleServiceName = "lb.example.grpc.io"
 )
 
-var wg sync.WaitGroup
+var (
+	wg sync.WaitGroup
+	//addrs = []string{"localhost:50051", "localhost:50052"}
+)
+
+/*
+type exampleResolverBuilder struct{}
+
+func (*exampleResolverBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOptions) (resolver.Resolver, error) {
+	r := &exampleResolver{
+		target: target,
+		cc:     cc,
+		addrsStore: map[string][]string{
+			exampleServiceName: addrs, // "lb.example.grpc.io": "localhost:50051", "localhost:50052"
+		},
+	}
+	r.start()
+	return r, nil
+}
+
+func (*exampleResolverBuilder) Scheme() string {
+	return exampleScheme // "example"
+}
+
+type exampleResolver struct {
+	target     resolver.Target
+	cc         resolver.ClientConn
+	addrsStore map[string][]string
+}
+
+func (r *exampleResolver) start() {
+	addrStrs := r.addrsStore[r.target.Endpoint()]
+	addrs := make([]resolver.Address, len(addrStrs))
+	for i, s := range addrStrs {
+		addrs[i] = resolver.Address{Addr: s}
+	}
+}
+
+func (*exampleResolver) ResolveNow(o resolver.ResolveNowOptions) {}
+func (*exampleResolver) Close()                                  {}
+*/
 
 func main() {
 	// call two unary RPC methods
-	// wg.Add(1)
-	// go callAddProductAndGetProduct()
-	// wg.Add(1)
-	// go callGetOrder()
+	//wg.Add(1)
+	//go callAddProductAndGetProduct()
+	//wg.Add(1)
+	//go callGetOrder()
 	// call server-side streaming RPC method
-	// wg.Add(1)
-	// go callSearchOrders()
-	// wg.Add(1)
-	// go callUpdateOrders()
+	//wg.Add(1)
+	//go callSearchOrders()
+	//wg.Add(1)
+	//go callUpdateOrders()
+	//wg.Add(1)
+	//go callProcessOrders()
 	wg.Add(1)
-	go callProcessOrders()
+	go addOrder()
 	wg.Wait()
 }
 
@@ -66,12 +120,55 @@ func callAddProductAndGetProduct() {
 	log.Println("GetProduct: Product: ", product.String())
 }
 
+func orderUnaryClientInterceptor(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn,
+	invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	// Preprocessor phase
+	log.Println("Method : " + method)
+
+	// Invoking the remote method
+	err := invoker(ctx, method, req, reply, cc, opts...)
+
+	// Postprocessor phase
+	log.Println(reply)
+
+	return err
+}
+func orderStreamClientInterceptor(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string,
+	streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+	log.Println("======= [Client Interceptor] ", method)
+	s, err := streamer(ctx, desc, cc, method, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return newWrappedStream(s), nil
+}
+
+type wrappedStream struct {
+	grpc.ClientStream
+}
+
+func (w *wrappedStream) RecvMsg(m interface{}) error {
+	log.Printf("====== [Client Stream Interceptor] "+
+		"Receive a message (Type: %T) at %v", m, time.Now().Format(time.RFC3339))
+	return w.ClientStream.RecvMsg(m)
+}
+
+func (w *wrappedStream) SendMsg(m interface{}) error {
+	log.Printf("====== [Client Stream Interceptor] "+
+		"Send a message (Type: %T) at %v", m, time.Now().Format(time.RFC3339))
+	return w.ClientStream.SendMsg(m)
+}
+
+func newWrappedStream(s grpc.ClientStream) grpc.ClientStream {
+	return &wrappedStream{s}
+}
+
 // callGetOrder calls the GetOrder gRPC methods of the OrderManagementServer
 // in unary RPC mode.
 func callGetOrder() {
 	defer wg.Done()
 	// Setting up a connection to the server.
-	conn, err := grpc.Dial(orderAddress, grpc.WithInsecure())
+	conn, err := grpc.Dial(orderAddress, grpc.WithInsecure(), grpc.WithUnaryInterceptor(orderUnaryClientInterceptor))
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}
@@ -98,13 +195,13 @@ func callGetOrder() {
 func callSearchOrders() {
 	defer wg.Done()
 	// Setting up a connection to the server.
-	conn, err := grpc.Dial(orderAddress, grpc.WithInsecure())
+	conn, err := grpc.Dial(orderAddress, grpc.WithInsecure(), grpc.WithUnaryInterceptor(orderUnaryClientInterceptor))
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}
 	defer conn.Close()
 	c := pb.NewOrderManagementClient(conn)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Hour)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	searchStream, _ := c.SearchOrders(ctx, &wrappers.StringValue{Value: "Google"})
 	for {
@@ -123,7 +220,7 @@ func callSearchOrders() {
 func callUpdateOrders() {
 	defer wg.Done()
 	// Setting up a connection to the server.
-	conn, err := grpc.Dial(orderAddress, grpc.WithInsecure())
+	conn, err := grpc.Dial(orderAddress, grpc.WithInsecure(), grpc.WithStreamInterceptor(orderStreamClientInterceptor))
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}
@@ -169,13 +266,13 @@ func callUpdateOrders() {
 func callProcessOrders() {
 	defer wg.Done()
 	// Setting up a connection to the server.
-	conn, err := grpc.Dial(orderAddress, grpc.WithInsecure())
+	conn, err := grpc.Dial(orderAddress, grpc.WithInsecure(), grpc.WithStreamInterceptor(orderStreamClientInterceptor))
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}
 	defer conn.Close()
 	c := pb.NewOrderManagementClient(conn)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	streamProcOrder, err := c.ProcessOrders(ctx)
 	if err != nil {
@@ -197,6 +294,10 @@ func callProcessOrders() {
 	channel := make(chan struct{})
 	go asyncClientBidirectionalRPC(streamProcOrder, channel)
 	time.Sleep(time.Millisecond * 1000)
+
+	// Cancel the RPC
+	cancel()
+	log.Printf("RPC Status : %s", ctx.Err())
 
 	if err := streamProcOrder.Send(&wrappers.StringValue{Value: "101"}); err != nil {
 		log.Fatalf("%v.Send(%v) = %v", c, "101", err)
@@ -220,4 +321,95 @@ func asyncClientBidirectionalRPC(streamProcOrder pb.OrderManagement_ProcessOrder
 	}
 	//close(c)
 	<-c
+}
+
+func addOrder() {
+	defer wg.Done()
+	conn, err := grpc.Dial(orderAddress, grpc.WithInsecure(), grpc.WithUnaryInterceptor(orderUnaryClientInterceptor))
+	if err != nil {
+		log.Fatalf("did not connect: %v", err)
+	}
+	defer conn.Close()
+	client := pb.NewOrderManagementClient(conn)
+
+	md1 := metadata.New(map[string]string{
+		"key1": "val1",
+		"key2": "val2",
+	})
+	md2 := metadata.Pairs(
+		"key3", "val3",
+		"key3", "val3-2",
+		"Key4", "val4",
+		"timestamp", time.Now().Format(time.StampNano),
+	)
+	md := metadata.Join(md1, md2)
+	mdCtx := metadata.NewOutgoingContext(context.Background(), md)
+
+	clientDeadline := time.Now().Add(10 * time.Second)
+	ctx, cancel := context.WithDeadline(mdCtx, clientDeadline)
+
+	defer cancel()
+
+	// Add Order
+	order1 := pb.Order{
+		Id:          "101",
+		Items:       []string{"iPhone XS", "Mac Book Pro"},
+		Destination: "San Jose, CA",
+		Price:       2300.00,
+	}
+	var header, trailer metadata.MD
+	res, addErr := client.AddOrder(ctx, &order1, grpc.Header(&header), grpc.Trailer(&trailer))
+
+	// process header and trailer map here received from server side
+	printMetadata("header", &header)
+	printMetadata("trailer", &trailer)
+
+	if addErr != nil {
+		got := status.Code(addErr)
+		log.Printf("Error Occured -> addOrder : , %v:", got)
+	} else {
+		log.Print("AddOrder Response ->", res.Value)
+	}
+
+	// call Hello service
+	helloClient := pb.NewGreetingClient(conn)
+	helloClient.Hello(ctx, &empty.Empty{})
+
+	order2 := pb.Order{
+		Id:          "-1",
+		Items:       []string{"iPhone XS", "Mac Book Pro"},
+		Destination: "San Jose, CA",
+		Price:       2300.00,
+	}
+	res, addOrderError := client.AddOrder(ctx, &order2)
+
+	if addOrderError != nil {
+		errorCode := status.Code(addOrderError)
+		if errorCode == codes.InvalidArgument {
+			log.Printf("Invalid Argument Error : %s", errorCode)
+			errorStatus := status.Convert(addOrderError)
+			for _, d := range errorStatus.Details() {
+				switch info := d.(type) {
+				case *epb.BadRequest_FieldViolation:
+					log.Printf("Request Field Invalid: %s", info)
+				default:
+					log.Printf("Unexpected error type: %s", info)
+				}
+			}
+		} else {
+			log.Printf("Unhandled error : %s ", errorCode)
+		}
+	} else {
+		log.Print("AddOrder Response -> ", res.Value)
+	}
+}
+
+func printMetadata(name string, md *metadata.MD) {
+	if len(*md) > 0 {
+		log.Println("Printing metadata", name)
+		for k, v := range *md {
+			log.Println("metadata:", k, v)
+		}
+		log.Println("Printing metadata", name, "done")
+	}
 }

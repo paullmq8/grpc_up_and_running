@@ -8,6 +8,7 @@ package pbs
 
 import (
 	context "context"
+	empty "github.com/golang/protobuf/ptypes/empty"
 	wrappers "github.com/golang/protobuf/ptypes/wrappers"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
@@ -23,6 +24,7 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type OrderManagementClient interface {
+	AddOrder(ctx context.Context, in *Order, opts ...grpc.CallOption) (*wrappers.StringValue, error)
 	// unary rpc
 	GetOrder(ctx context.Context, in *wrappers.StringValue, opts ...grpc.CallOption) (*Order, error)
 	// server side streaming rpc
@@ -39,6 +41,15 @@ type orderManagementClient struct {
 
 func NewOrderManagementClient(cc grpc.ClientConnInterface) OrderManagementClient {
 	return &orderManagementClient{cc}
+}
+
+func (c *orderManagementClient) AddOrder(ctx context.Context, in *Order, opts ...grpc.CallOption) (*wrappers.StringValue, error) {
+	out := new(wrappers.StringValue)
+	err := c.cc.Invoke(ctx, "/OrderManagement/addOrder", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *orderManagementClient) GetOrder(ctx context.Context, in *wrappers.StringValue, opts ...grpc.CallOption) (*Order, error) {
@@ -151,6 +162,7 @@ func (x *orderManagementProcessOrdersClient) Recv() (*CombinedShipment, error) {
 // All implementations must embed UnimplementedOrderManagementServer
 // for forward compatibility
 type OrderManagementServer interface {
+	AddOrder(context.Context, *Order) (*wrappers.StringValue, error)
 	// unary rpc
 	GetOrder(context.Context, *wrappers.StringValue) (*Order, error)
 	// server side streaming rpc
@@ -166,6 +178,9 @@ type OrderManagementServer interface {
 type UnimplementedOrderManagementServer struct {
 }
 
+func (UnimplementedOrderManagementServer) AddOrder(context.Context, *Order) (*wrappers.StringValue, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddOrder not implemented")
+}
 func (UnimplementedOrderManagementServer) GetOrder(context.Context, *wrappers.StringValue) (*Order, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetOrder not implemented")
 }
@@ -189,6 +204,24 @@ type UnsafeOrderManagementServer interface {
 
 func RegisterOrderManagementServer(s grpc.ServiceRegistrar, srv OrderManagementServer) {
 	s.RegisterService(&OrderManagement_ServiceDesc, srv)
+}
+
+func _OrderManagement_AddOrder_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Order)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OrderManagementServer).AddOrder(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/OrderManagement/addOrder",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OrderManagementServer).AddOrder(ctx, req.(*Order))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _OrderManagement_GetOrder_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -290,6 +323,10 @@ var OrderManagement_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*OrderManagementServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
+			MethodName: "addOrder",
+			Handler:    _OrderManagement_AddOrder_Handler,
+		},
+		{
 			MethodName: "getOrder",
 			Handler:    _OrderManagement_GetOrder_Handler,
 		},
@@ -312,5 +349,91 @@ var OrderManagement_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
+	Metadata: "interface/protos/order_management.proto",
+}
+
+// GreetingClient is the client API for Greeting service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type GreetingClient interface {
+	Hello(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (*empty.Empty, error)
+}
+
+type greetingClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewGreetingClient(cc grpc.ClientConnInterface) GreetingClient {
+	return &greetingClient{cc}
+}
+
+func (c *greetingClient) Hello(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (*empty.Empty, error) {
+	out := new(empty.Empty)
+	err := c.cc.Invoke(ctx, "/Greeting/hello", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GreetingServer is the server API for Greeting service.
+// All implementations must embed UnimplementedGreetingServer
+// for forward compatibility
+type GreetingServer interface {
+	Hello(context.Context, *empty.Empty) (*empty.Empty, error)
+	mustEmbedUnimplementedGreetingServer()
+}
+
+// UnimplementedGreetingServer must be embedded to have forward compatible implementations.
+type UnimplementedGreetingServer struct {
+}
+
+func (UnimplementedGreetingServer) Hello(context.Context, *empty.Empty) (*empty.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Hello not implemented")
+}
+func (UnimplementedGreetingServer) mustEmbedUnimplementedGreetingServer() {}
+
+// UnsafeGreetingServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to GreetingServer will
+// result in compilation errors.
+type UnsafeGreetingServer interface {
+	mustEmbedUnimplementedGreetingServer()
+}
+
+func RegisterGreetingServer(s grpc.ServiceRegistrar, srv GreetingServer) {
+	s.RegisterService(&Greeting_ServiceDesc, srv)
+}
+
+func _Greeting_Hello_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(empty.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GreetingServer).Hello(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/Greeting/hello",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GreetingServer).Hello(ctx, req.(*empty.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// Greeting_ServiceDesc is the grpc.ServiceDesc for Greeting service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var Greeting_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "Greeting",
+	HandlerType: (*GreetingServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "hello",
+			Handler:    _Greeting_Hello_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
 	Metadata: "interface/protos/order_management.proto",
 }

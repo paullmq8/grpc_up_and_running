@@ -1,12 +1,14 @@
 syntax = "proto3";
 
 import "google/protobuf/wrappers.proto";
+import "google/protobuf/empty.proto";
 
 option go_package="interface/pbs";
 
 //cd ~/Documents/vscode/grpc_up_and_running/ecommerce
 //protoc --go_out=. --go-grpc_out=. interface/protos/*
 service OrderManagement {
+    rpc addOrder(Order) returns (google.protobuf.StringValue);
     // unary rpc
     rpc getOrder(google.protobuf.StringValue) returns (Order);
     // server side streaming rpc
@@ -15,6 +17,10 @@ service OrderManagement {
     rpc updateOrders(stream Order) returns (google.protobuf.StringValue);
     // bi-directional streaming rpc
     rpc processOrders(stream google.protobuf.StringValue) returns (stream CombinedShipment);
+}
+
+service Greeting {
+    rpc hello(google.protobuf.Empty) returns (google.protobuf.Empty);
 }
 
 message Order {
