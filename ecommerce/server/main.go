@@ -8,8 +8,8 @@ import (
 	"time"
 
 	pb "ecommerce/interface/pbs"
-
 	"google.golang.org/grpc"
+	_ "google.golang.org/grpc/encoding/gzip"
 )
 
 const (
@@ -21,7 +21,10 @@ func init() {
 	log.SetFlags(log.Lshortfile)
 }
 
-var wg sync.WaitGroup
+var (
+	wg    sync.WaitGroup
+	addrs = []string{":50053", ":50054"}
+)
 
 func main() {
 
@@ -29,6 +32,7 @@ func main() {
 	go productInfoServerStart()
 	wg.Add(1)
 	go orderManagementServerStart()
+	echoServerStart()
 	wg.Wait()
 }
 
@@ -107,5 +111,28 @@ func orderManagementServerStart() {
 
 	if err := grpcServer2.Serve(grpcLis2); err != nil {
 		log.Fatalf("failed to serve: %v", err)
+	}
+}
+
+func startEchoServer(addr string) {
+	lis, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
+	}
+	s := grpc.NewServer()
+	pb.RegisterEchoServer(s, &ecServer{addr: addr})
+	log.Printf("serving on %s\n", addr)
+	if err := s.Serve(lis); err != nil {
+		log.Fatalf("failed to serve: %v", err)
+	}
+}
+
+func echoServerStart() {
+	for _, addr := range addrs {
+		wg.Add(1)
+		go func(addr string) {
+			defer wg.Done()
+			startEchoServer(addr)
+		}(addr)
 	}
 }

@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"github.com/golang/protobuf/ptypes/empty"
 	epb "google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/status"
 	"io"
 	"log"
@@ -15,29 +18,27 @@ import (
 	"time"
 
 	pb "ecommerce/interface/pbs"
-
 	"github.com/golang/protobuf/ptypes/wrappers"
 	"google.golang.org/grpc"
 )
 
 func init() {
 	log.SetFlags(log.Lshortfile)
-	//resolver.Register(&exampleResolverBuilder{})
+	resolver.Register(&exampleResolverBuilder{})
 }
 
 const (
-	productAddress = "localhost:50051"
-	orderAddress   = "localhost:50052"
-	//exampleScheme      = "example"
-	//exampleServiceName = "lb.example.grpc.io"
+	productAddress     = "localhost:50051"
+	orderAddress       = "localhost:50052"
+	exampleScheme      = "example"
+	exampleServiceName = "lb.example.grpc.io"
 )
 
 var (
-	wg sync.WaitGroup
-	//addrs = []string{"localhost:50051", "localhost:50052"}
+	wg    sync.WaitGroup
+	addrs = []string{"localhost:50053", "localhost:50054"}
 )
 
-/*
 type exampleResolverBuilder struct{}
 
 func (*exampleResolverBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOptions) (resolver.Resolver, error) {
@@ -45,7 +46,7 @@ func (*exampleResolverBuilder) Build(target resolver.Target, cc resolver.ClientC
 		target: target,
 		cc:     cc,
 		addrsStore: map[string][]string{
-			exampleServiceName: addrs, // "lb.example.grpc.io": "localhost:50051", "localhost:50052"
+			exampleServiceName: addrs, // "lb.example.grpc.io": "localhost:50053", "localhost:50054"
 		},
 	}
 	r.start()
@@ -72,7 +73,6 @@ func (r *exampleResolver) start() {
 
 func (*exampleResolver) ResolveNow(o resolver.ResolveNowOptions) {}
 func (*exampleResolver) Close()                                  {}
-*/
 
 func main() {
 	// call two unary RPC methods
@@ -88,7 +88,9 @@ func main() {
 	//wg.Add(1)
 	//go callProcessOrders()
 	wg.Add(1)
-	go addOrder()
+	go callAddOrder()
+	//wg.Add(1)
+	//go callEchoRPC()
 	wg.Wait()
 }
 
@@ -133,6 +135,7 @@ func orderUnaryClientInterceptor(ctx context.Context, method string, req, reply 
 
 	return err
 }
+
 func orderStreamClientInterceptor(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string,
 	streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
 	log.Println("======= [Client Interceptor] ", method)
@@ -323,7 +326,7 @@ func asyncClientBidirectionalRPC(streamProcOrder pb.OrderManagement_ProcessOrder
 	<-c
 }
 
-func addOrder() {
+func callAddOrder() {
 	defer wg.Done()
 	conn, err := grpc.Dial(orderAddress, grpc.WithInsecure(), grpc.WithUnaryInterceptor(orderUnaryClientInterceptor))
 	if err != nil {
@@ -358,7 +361,12 @@ func addOrder() {
 		Price:       2300.00,
 	}
 	var header, trailer metadata.MD
-	res, addErr := client.AddOrder(ctx, &order1, grpc.Header(&header), grpc.Trailer(&trailer))
+
+	// The AddOrder method will return an error: grpc: Decompressor is not installed for grpc-encoding "gzip"
+	// if server side doesn't import "google.golang.org/grpc/encoding/gzip"
+	// since client side is calling RPC in a compression way
+	res, addErr := client.AddOrder(ctx, &order1, grpc.Header(&header), grpc.Trailer(&trailer),
+		grpc.UseCompressor(gzip.Name))
 
 	// process header and trailer map here received from server side
 	printMetadata("header", &header)
@@ -366,7 +374,7 @@ func addOrder() {
 
 	if addErr != nil {
 		got := status.Code(addErr)
-		log.Printf("Error Occured -> addOrder : , %v:", got)
+		log.Printf("Error Occured -> callAddOrder : , %v:", got)
 	} else {
 		log.Print("AddOrder Response ->", res.Value)
 	}
@@ -376,7 +384,7 @@ func addOrder() {
 	helloClient.Hello(ctx, &empty.Empty{})
 
 	order2 := pb.Order{
-		Id:          "-1",
+		Id:          "1", // -1
 		Items:       []string{"iPhone XS", "Mac Book Pro"},
 		Destination: "San Jose, CA",
 		Price:       2300.00,
@@ -412,4 +420,53 @@ func printMetadata(name string, md *metadata.MD) {
 		}
 		log.Println("Printing metadata", name, "done")
 	}
+}
+
+func callUnaryEcho(c pb.EchoClient, message string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	r, err := c.UnaryEcho(ctx, &pb.EchoRequest{Message: message})
+	if err != nil {
+		log.Fatalf("could not greet: %v", err)
+	}
+	log.Println(r.Message)
+}
+
+func makeRPCs(cc *grpc.ClientConn, n int) {
+	hwc := pb.NewEchoClient(cc)
+	for i := 0; i < n; i++ {
+		callUnaryEcho(hwc, "This is examples/load_balancing")
+	}
+}
+
+func callEchoRPC() {
+	defer wg.Done()
+	pickFirstConn, err := grpc.Dial(
+		fmt.Sprintf("%s:///%s", exampleScheme, exampleServiceName), // "example:///lb.example.grpc.io"
+		// grpc.WithBalancerName("pick_first"), // "pick_first" is the default, so this DialOption is not necessary.
+
+		grpc.WithDefaultServiceConfig(`{"loadBalancingConfig": [{"`+grpc.PickFirstBalancerName+`":{}}]}`), // this sets the initial balancing policy.
+		grpc.WithInsecure(),
+	)
+	if err != nil {
+		log.Fatalf("did not connect: %v", err)
+	}
+	defer pickFirstConn.Close()
+
+	log.Println("==== Calling helloworld.Greeter/SayHello with pick_first ====")
+	makeRPCs(pickFirstConn, 10)
+
+	// Make another ClientConn with round_robin policy.
+	roundrobinConn, err := grpc.Dial(
+		fmt.Sprintf("%s:///%s", exampleScheme, exampleServiceName),                     // "example:///lb.example.grpc.io"
+		grpc.WithDefaultServiceConfig(`{"loadBalancingConfig": [{"round_robin":{}}]}`), // this sets the initial balancing policy.
+		grpc.WithInsecure(),
+	)
+	if err != nil {
+		log.Fatalf("did not connect: %v", err)
+	}
+	defer roundrobinConn.Close()
+
+	log.Println("==== Calling helloworld.Greeter/SayHello with round_robin ====")
+	makeRPCs(roundrobinConn, 10)
 }
