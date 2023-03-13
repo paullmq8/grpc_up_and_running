@@ -65,10 +65,11 @@ type exampleResolver struct {
 
 func (r *exampleResolver) start() {
 	addrStrs := r.addrsStore[r.target.Endpoint()]
-	addrs := make([]resolver.Address, len(addrStrs))
+	addrList := make([]resolver.Address, len(addrStrs))
 	for i, s := range addrStrs {
-		addrs[i] = resolver.Address{Addr: s}
+		addrList[i] = resolver.Address{Addr: s}
 	}
+	_ = r.cc.UpdateState(resolver.State{Addresses: addrList})
 }
 
 func (*exampleResolver) ResolveNow(o resolver.ResolveNowOptions) {}
@@ -87,10 +88,10 @@ func main() {
 	//go callUpdateOrders()
 	//wg.Add(1)
 	//go callProcessOrders()
-	wg.Add(1)
-	go callAddOrder()
 	//wg.Add(1)
-	//go callEchoRPC()
+	//go callAddOrder()
+	wg.Add(1)
+	go callEchoRPC()
 	wg.Wait()
 }
 
@@ -384,7 +385,7 @@ func callAddOrder() {
 	helloClient.Hello(ctx, &empty.Empty{})
 
 	order2 := pb.Order{
-		Id:          "1", // -1
+		Id:          "-1", // 1
 		Items:       []string{"iPhone XS", "Mac Book Pro"},
 		Destination: "San Jose, CA",
 		Price:       2300.00,
@@ -423,7 +424,7 @@ func printMetadata(name string, md *metadata.MD) {
 }
 
 func callUnaryEcho(c pb.EchoClient, message string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 	r, err := c.UnaryEcho(ctx, &pb.EchoRequest{Message: message})
 	if err != nil {
@@ -444,8 +445,7 @@ func callEchoRPC() {
 	pickFirstConn, err := grpc.Dial(
 		fmt.Sprintf("%s:///%s", exampleScheme, exampleServiceName), // "example:///lb.example.grpc.io"
 		// grpc.WithBalancerName("pick_first"), // "pick_first" is the default, so this DialOption is not necessary.
-
-		grpc.WithDefaultServiceConfig(`{"loadBalancingConfig": [{"`+grpc.PickFirstBalancerName+`":{}}]}`), // this sets the initial balancing policy.
+		//grpc.WithDefaultServiceConfig(`{"loadBalancingConfig": [{"`+grpc.PickFirstBalancerName+`":{}}]}`), // this sets the initial balancing policy.
 		grpc.WithInsecure(),
 	)
 	if err != nil {
